@@ -11,6 +11,34 @@ It calls any **OpenAI-compatible vision API** directly (Qwen-VL, GPT-4o, Claude,
 
 ---
 
+## The idea
+
+Most capable coding agents run on **text-only models** — fast and cheap, but blind to images. You *could* switch to a multimodal model for everything, but that's expensive: vision tokens cost 5-20x more than text tokens, and most coding tasks don't need vision at all.
+
+**This projectE takes a different approach:**
+
+```
+                    ┌─────────────────────────┐
+  user request ───▶ │  text-only agent model   │  ← cheap, fast, handles 95% of work
+                    │  (opencode / openclaw /  │
+                    │   Claude Code / Cursor)  │
+                    └──────────┬──────────────┘
+                               │ "I need to see this image"
+                               │ calls MCP tool
+                               ▼
+                    ┌─────────────────────────┐
+                    │  dedicated vision model   │  ← only invoked when needed
+                    │  (Qwen-VL / GPT-4o /     │
+                    │   GLM-4V / local vLLM)   │
+                    └─────────────────────────┘
+```
+
+- **Extend capabilities** — a text-only agent gains on-demand vision: OCR, image description, screenshot-to-UI-tree, structured extraction
+- **Save cost** — the expensive vision model is called *only* when an image is involved, not on every turn
+- **Decouple models** — swap the agent model and the vision model independently; use a cheap local model for coding and a powerful cloud model for vision, or vice versa
+
+---
+
 ## Why use this?
 
 AI coding agents (opencode, openclaw, Claude Code, Cursor, etc.) can't see images. This MCP server bridges that gap by exposing vision tools that the agent can call autonomously:

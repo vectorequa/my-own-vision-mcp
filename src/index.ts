@@ -12,7 +12,7 @@ async function main(): Promise<void> {
   initLogger({ maxFileSize: config.logging.max_file_size, maxFiles: config.logging.max_files });
   const server = new McpServer({
     name: "my-own-vision-mcp",
-    version: "0.1.0",
+    version: "0.1.1",
   });
   registerTools(server, config);
   registerPrompts(server, config);

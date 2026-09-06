@@ -1,6 +1,6 @@
 {
   "name": "my-own-vision-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Standalone MCP server for image recognition via LLM vision API — OCR, image analysis, structured extraction, screenshot-to-accessibility-tree",
   "type": "module",
   "main": "dist/index.js",
