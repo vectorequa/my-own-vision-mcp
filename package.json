@@ -1,0 +1,55 @@
+{
+  "name": "my-own-vision-mcp",
+  "version": "0.1.0",
+  "description": "Standalone MCP server for image recognition via LLM vision API — OCR, image analysis, structured extraction, screenshot-to-accessibility-tree",
+  "type": "module",
+  "main": "dist/index.js",
+  "license": "MIT",
+  "author": "vectorequa",
+  "homepage": "https://github.com/vectorequa/my-own-vision-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vectorequa/my-own-vision-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vectorequa/my-own-vision-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "vision",
+    "image-recognition",
+    "ocr",
+    "llm",
+    "ai",
+    "screenshot",
+    "accessibility-tree",
+    "openai-compatible",
+    "qwen-vl",
+    "computer-vision",
+    "image-analysis",
+    "gui",
+    "image-to-json",
+    "agent-tools"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.25.0"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.33.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
