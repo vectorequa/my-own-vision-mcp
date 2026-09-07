@@ -112,7 +112,11 @@ export function loadConfig(): AppConfig {
         );
       }
     }
-    if (!provider.model) throw new Error(`config: provider '${name}' missing model`);
+    if (!provider.model || provider.model === "YOUR_MODEL") {
+      throw new Error(
+        `config: provider '${name}' model not set — set it in ~/.config/${PROJECT_NAME}/${PROJECT_NAME}.json`,
+      );
+    }
     if (!provider.max_tokens) provider.max_tokens = 4096;
     if (!provider.timeout) provider.timeout = 60;
     if (!provider.retry) provider.retry = {} as RetryConfig;

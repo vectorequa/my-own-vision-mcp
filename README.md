@@ -144,7 +144,7 @@ Ask your agent to call the `ping` tool. You should get:
 {
   "status": "ok",
   "provider": "qwen",
-  "model": "qwen-vl-max",
+  "model": "your-model-name",
   "max_tokens": 16384,
   "timeout": 120,
   "max_image_dim": 1280
@@ -206,7 +206,7 @@ config.json (project)  →  ~/.config/my-own-vision-mcp/my-own-vision-mcp.json (
       "qwen": {
         "url": "https://your-api-endpoint/v1",
         "api_key": "YOUR_API_KEY",
-        "model": "qwen-vl-max",
+  "model": "your-model-name",
         "max_tokens": 16384,
         "timeout": 120,
         "retry": {

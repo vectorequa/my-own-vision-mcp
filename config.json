@@ -5,7 +5,7 @@
       "qwen": {
         "url": "https://your-api-endpoint/v1",
         "api_key": "YOUR_API_KEY",
-        "model": "qwen-vl-max",
+        "model": "YOUR_MODEL",
         "max_tokens": 16384,
         "timeout": 120,
         "retry": {
