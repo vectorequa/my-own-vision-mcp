@@ -24,19 +24,11 @@ export interface RetryConfig {
 
 export interface ProviderCapabilities {
   max_image_dim?: number;
-  optimal_image_dim?: number;
   jpeg_quality?: number;
-  max_image_size?: number;
-  detail_presets?: {
-    low?: number;
-    medium?: number;
-    high?: number;
-  };
   best_for?: string[];
   supports_json_mode?: boolean;
   supports_multi_image?: boolean;
   rate_limit_tier?: "none" | "low" | "high";
-  max_output_tokens?: number;
 }
 
 export interface ProviderConfig {
@@ -51,26 +43,11 @@ export interface ProviderConfig {
   capabilities?: ProviderCapabilities;
 }
 
-export interface VisionToolOverride {
-  max_image_dim?: number;
-  jpeg_quality?: number;
-  max_image_size?: number;
-  url_timeout?: number;
-}
-
-export interface DetailPresets {
-  low: number;
-  medium: number;
-  high: number;
-}
-
 export interface VisionConfig {
   max_image_dim: number;
   jpeg_quality: number;
   max_image_size: number;
   url_timeout: number;
-  detail_presets: DetailPresets;
-  tools: Record<string, VisionToolOverride>;
 }
 
 export interface LoggingConfig {
@@ -171,7 +148,7 @@ export function loadConfig(): AppConfig {
     if (!r.retry_on_status) r.retry_on_status = [429, 500, 502, 503, 504];
     if (r.retry_504_delay === undefined) r.retry_504_delay = 10.0;
     if (r.max_504_retries === undefined) r.max_504_retries = 1;
-    if (r.empty_retries === undefined) r.empty_retries = 3;
+    if (r.empty_retries === undefined) r.empty_retries = 1;
     if (r.empty_retry_delay === undefined) r.empty_retry_delay = 1.5;
   }
 
@@ -180,8 +157,6 @@ export function loadConfig(): AppConfig {
   if (!raw.vision.jpeg_quality) raw.vision.jpeg_quality = 85;
   if (!raw.vision.max_image_size) raw.vision.max_image_size = 20 * 1024 * 1024;
   if (!raw.vision.url_timeout) raw.vision.url_timeout = 30;
-  if (!raw.vision.detail_presets) raw.vision.detail_presets = { low: 768, medium: 1024, high: 1920 };
-  if (!raw.vision.tools) raw.vision.tools = {};
 
   const defaultProvider = raw.llm.providers[raw.llm.default_provider] as ProviderConfig | undefined;
   if (defaultProvider && !defaultProvider.enable) {
@@ -213,27 +188,6 @@ export function getEnabledProviders(config: AppConfig): Record<string, ProviderC
   return result;
 }
 
-export function getVisionForTool(config: AppConfig, toolName: string): VisionConfig {
-  const base = config.vision;
-  const override = base.tools?.[toolName];
-  if (!override) return base;
-  return {
-    ...base,
-    ...override,
-    detail_presets: base.detail_presets,
-    tools: base.tools,
-  };
-}
-
-export function resolveDetail(
-  config: AppConfig,
-  toolName: string,
-  detail: "low" | "medium" | "high" | "auto" | undefined,
-): number | undefined {
-  if (!detail || detail === "auto") return undefined;
-  return config.vision.detail_presets[detail];
-}
-
 export function getProviderCapabilities(config: AppConfig, providerName?: string): ProviderCapabilities {
   const name = providerName || config.llm.default_provider;
   return config.llm.providers[name]?.capabilities || {};
@@ -241,42 +195,11 @@ export function getProviderCapabilities(config: AppConfig, providerName?: string
 
 export function resolveProviderImageDim(
   config: AppConfig,
-  toolName: string,
   providerName: string | undefined,
-  detail: "low" | "medium" | "high" | "auto" | undefined,
 ): { maxImageDim?: number; jpegQuality?: number } {
   const caps = getProviderCapabilities(config, providerName);
-  const toolOverride = config.vision.tools?.[toolName];
-
-  let maxImageDim: number | undefined;
-  let jpegQuality: number | undefined;
-
-  if (detail && detail !== "auto") {
-    const preset = caps.detail_presets?.[detail];
-    if (preset !== undefined) {
-      maxImageDim = preset;
-    } else {
-      maxImageDim = config.vision.detail_presets[detail];
-    }
-  }
-
-  if (maxImageDim === undefined) {
-    maxImageDim = caps.optimal_image_dim;
-  }
-
-  if (maxImageDim === undefined) {
-    maxImageDim = toolOverride?.max_image_dim;
-  }
-
-  if (maxImageDim === undefined) {
-    maxImageDim = config.vision.max_image_dim;
-  }
-
-  if (caps.max_image_dim !== undefined && maxImageDim > caps.max_image_dim) {
-    maxImageDim = caps.max_image_dim;
-  }
-
-  jpegQuality = caps.jpeg_quality ?? toolOverride?.jpeg_quality ?? config.vision.jpeg_quality;
-
-  return { maxImageDim, jpegQuality };
+  return {
+    maxImageDim: caps.max_image_dim ?? config.vision.max_image_dim,
+    jpegQuality: caps.jpeg_quality ?? config.vision.jpeg_quality,
+  };
 }

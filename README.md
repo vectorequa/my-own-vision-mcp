@@ -50,16 +50,15 @@ AI coding agents (Claude Code, Cursor, Windsurf, Cline, opencode, openclaw, etc.
 | **Describe a photo / screenshot** | `analyze_image` | "What's in this error screenshot?" |
 | **Extract text from images** (OCR) | `extract_text` | Read a scanned document, receipt, or meme |
 | **Extract structured data** from an image | `extract_structured` | Pull `{name, date, total}` from an invoice |
-| **Compare two images** | `compare_images` | "Did the UI change between these two screenshots?" |
-| **Screenshot → UI tree** for agent interaction | `analyze_screenshot` | Convert a webpage screenshot into clickable elements with bbox coordinates |
+| **Compare two images** | `analyze_image` (pass array) | "Did the UI change between these two screenshots?" |
 
 ### Key features
 
-- **6 tools + 4 prompts** covering general vision and GUI screenshot analysis
+- **4 tools + 3 prompts** covering general vision tasks
 - **Any OpenAI-compatible API** — configure your endpoint and key, done
 - **Multiple input formats** — file path, base64, or URL
-- **Automatic image preprocessing** — resize/compress via `sharp` (optional) to reduce API costs
-- **bbox coordinate scaling** — `analyze_screenshot` maps UI element coordinates back to the original image dimensions
+- **Automatic image preprocessing** — resize/compress via `sharp` (optional), resolution follows provider capability
+- **Provider fallback chain** — auto-failover across providers with health tracking
 - **Structured logging** — stderr + auto-rotating log files, one per host client
 - **Retry with backoff** — configurable retry on 429/5xx, empty-response retry, JSON-mode fallback
 - **Zero Python dependency** — pure TypeScript/Node.js
@@ -154,37 +153,23 @@ Ask your agent to call the `ping` tool. You should get:
   "all_providers": { "qwen": { "model": "your-model-name" } },
   "vision": {
     "max_image_dim": 1280,
-    "jpeg_quality": 85,
-    "detail_presets": { "low": 768, "medium": 1024, "high": 1920 }
+    "jpeg_quality": 85
   }
 }
 ```
 
-(Full response also includes `extra_notes`, `capabilities`, and per-tool vision overrides — call `ping` to see all fields.)
+(Full response also includes `extra_notes`, `capabilities`, and all providers — call `ping` to see all fields.)
 
 ---
 
 ## Tools
 
-### General image tools
-
 | Tool | Description | Key params |
 |------|-------------|------------|
-| `analyze_image` | Analyze an image → text description | `image`, `prompt?` |
-| `extract_text` | OCR: extract all text, preserving layout | `image` |
-| `extract_structured` | Extract structured JSON guided by a schema | `image`, `schema` |
-| `compare_images` | Compare two images → similarities/differences | `image1`, `image2`, `prompt?` |
-| `ping` | Check server health and config | — |
-
-### GUI screenshot tools
-
-| Tool | Description | Key params |
-|------|-------------|------------|
-| `analyze_screenshot` | Extract UI accessibility tree (role/name/ref/bbox) from a screenshot | `image`, `format?` (`axtree`\|`json`), `max_elements?` |
-
-`analyze_screenshot` returns an accessibility tree of the screenshot. `bbox` is in the **original screenshot coordinate system** — the handler scales the model's output by `origWidth/scaledWidth` so coordinates map back to the original image without caller-side conversion. Output ends with a `[meta: {...}]` line showing the scale factor.
-
-> Use `analyze_screenshot` only for GUI screenshots. For general photos, use `analyze_image`. For custom field extraction, use `extract_structured`.
+| `analyze_image` | Analyze or compare image(s). Pass single image or array for multi-image. | `image`, `prompt?`, `max_tokens?` |
+| `extract_text` | OCR: extract all text, preserving layout. Auto-detects language. | `image`, `max_tokens?` |
+| `extract_structured` | Extract structured JSON guided by a schema. | `image`, `schema`, `prompt?`, `max_tokens?` |
+| `ping` | Check server health and config. | — |
 
 ### Prompts (user-invoked workflows)
 
@@ -192,21 +177,19 @@ Ask your agent to call the `ping` tool. You should get:
 |--------|-------------|
 | `ocr` | Thin redirect → calls `extract_text` |
 | `describe` | Thin redirect → calls `analyze_image` |
-| `compare` | Thin redirect → calls `compare_images` |
-| `ui-tree` | Rich workflow → calls `analyze_screenshot` + structure analysis + action suggestions |
+| `compare` | Thin redirect → calls `analyze_image` with array |
 
 All image inputs accept: **file path**, **base64 string**, or **URL** (http/https).
 
 ### Common parameters
 
-All tools (except `ping`) accept these optional parameters:
+All tools (except `ping`) accept:
 
 | Parameter | Description |
 |-----------|-------------|
-| `detail` | Image resolution: `low` (768px, fastest), `medium` (1024px, default), `high` (1920px, best quality), `auto` (use tool default). Higher = more vision tokens = slower + costlier. |
-| `max_tokens` | Max output tokens. Lower = faster. Suggested: 2048 for brief, 8192 for detailed, 16384 for screenshot trees. |
-| `provider` | LLM provider name from config (default: `default_provider`). Use to select a different model per call. |
-| `timeout` | Request timeout in milliseconds. Keep under 60000 to avoid MCP client timeout. |
+| `max_tokens` | Max output tokens. 2048=brief, 8192=detailed, 16384=large. |
+
+Image resolution is determined by `provider.capabilities.max_image_dim` — no manual override needed.
 
 ---
 
@@ -250,21 +233,7 @@ config.json (project)  →  ~/.config/my-own-vision-mcp/my-own-vision-mcp.json (
     "max_image_dim": 1280,
     "jpeg_quality": 85,
     "max_image_size": 20971520,
-    "url_timeout": 30,
-    "detail_presets": {
-      "low": 768,
-      "medium": 1024,
-      "high": 1920
-    },
-    "tools": {
-      "extract_text": {
-        "max_image_dim": 1920,
-        "jpeg_quality": 90
-      },
-      "analyze_screenshot": {
-        "max_image_dim": 1600
-      }
-    }
+    "url_timeout": 30
   },
   "logging": {
     "max_file_size": 1048576,
@@ -296,13 +265,11 @@ config.json (project)  →  ~/.config/my-own-vision-mcp/my-own-vision-mcp.json (
 | `llm.providers.<name>.max_tokens` | 4096 | Max output tokens per request |
 | `llm.providers.<name>.timeout` | 60 | Request timeout in seconds |
 | `llm.providers.<name>.retry.*` | — | Retry config: `max_retries` (3), `max_504_retries` (1), `base_delay` (1s), `max_delay` (30s), `jitter` (0.5), `retry_on_status` ([429,500,502,503,504]), `empty_retries` (3), `empty_retry_delay` (1.5s) |
-| `llm.providers.<name>.capabilities` | — | Per-provider vision capabilities (see AGENTS.md for details) |
-| `vision.max_image_dim` | 1280 | Max image dimension (px) for preprocessing |
-| `vision.jpeg_quality` | 85 | JPEG compression quality (1-100) |
+| `llm.providers.<name>.capabilities` | — | Per-provider vision capabilities: `max_image_dim`, `jpeg_quality`, `best_for`, `supports_json_mode`, `supports_multi_image`, `rate_limit_tier` |
+| `vision.max_image_dim` | 1280 | Default max image dimension (px) if provider doesn't specify `capabilities.max_image_dim` |
+| `vision.jpeg_quality` | 85 | Default JPEG compression quality if provider doesn't specify |
 | `vision.max_image_size` | 20MB | Max input image file size |
 | `vision.url_timeout` | 30 | Timeout (s) for fetching images from URLs |
-| `vision.detail_presets` | 768/1024/1920 | Pixel dimensions for `detail` = low/medium/high |
-| `vision.tools.<tool>` | — | Per-tool overrides for `max_image_dim` and `jpeg_quality` |
 | `logging.max_file_size` | 1MB | Log file rotation threshold |
 | `logging.max_files` | 10 | Max rotated log files to keep |
 
@@ -335,7 +302,7 @@ Install `sharp` for resize/compress before sending to LLM:
 npm install sharp
 ```
 
-Without sharp, images are sent as-is (raw base64). With sharp, images are resized to `max_image_dim` and compressed to JPEG `jpeg_quality`. The loader also returns original/scaled dimensions so `analyze_screenshot` can scale bbox coordinates back to the original image.
+Without sharp, images are sent as-is (raw base64). With sharp, images are resized to `provider.capabilities.max_image_dim` (or `vision.max_image_dim` fallback) and compressed to JPEG.
 
 ---
 

@@ -133,11 +133,15 @@ export class LLMClient {
     }
     clearTimeout(timer);
 
+    const bodyTimeout = Math.max(requestTimeout, 90000);
+    const bodyTimer = setTimeout(() => controller.abort(), bodyTimeout);
+
     if (!response.ok) {
       let errBody = "";
       try {
         errBody = await response.text();
       } catch { /* ignore */ }
+      clearTimeout(bodyTimer);
 
       if (response.status === 400 && options?.jsonMode && errBody.includes("response_format")) {
         return this.doRequest(messages, { ...options, jsonMode: false });
@@ -155,11 +159,13 @@ export class LLMClient {
     try {
       data = await response.json();
     } catch (e) {
+      clearTimeout(bodyTimer);
       throw new LLMError(
         `LLM response JSON parse failed: ${e instanceof Error ? e.message : String(e)}`,
         e,
       );
     }
+    clearTimeout(bodyTimer);
 
     try {
       const content = data.choices[0].message.content;
@@ -177,13 +183,22 @@ export class LLMClient {
     options?: { jsonMode?: boolean; maxTokens?: number; timeout?: number },
   ): Promise<string> {
     const r = this.retry;
+    const totalBudget = options?.timeout ?? this.timeout;
+    const deadline = Date.now() + totalBudget;
     let httpRetries = 0;
     let http504Retries = 0;
     let emptyRetries = 0;
 
     while (true) {
+      const remaining = deadline - Date.now();
+      if (remaining < 3000) {
+        throw new LLMError(`Retry budget exhausted: ${(totalBudget - remaining)}ms used, ${totalBudget}ms budget`);
+      }
+
+      const requestTimeout = Math.min(remaining, options?.timeout ?? this.timeout);
+
       try {
-        const result = await this.doRequest(messages, options);
+        const result = await this.doRequest(messages, { ...options, timeout: requestTimeout });
 
         if (!result) {
           if (emptyRetries < r.empty_retries) {
@@ -204,6 +219,8 @@ export class LLMClient {
           const maxForThis = is504 ? r.max_504_retries : r.max_retries;
           const currentCount = is504 ? http504Retries : httpRetries;
           if (retryable && currentCount < maxForThis) {
+            const nowRemaining = deadline - Date.now();
+            if (nowRemaining < 3000) throw new LLMError(`Retry budget exhausted before HTTP retry: ${e.message}`);
             if (is504) http504Retries++; else httpRetries++;
             const attemptNum = (is504 ? http504Retries : httpRetries);
             const delay = this.calcDelay(e.status, e.retryAfter, attemptNum);
@@ -216,6 +233,8 @@ export class LLMClient {
 
         if (e instanceof LLMNetworkError) {
           if (httpRetries < r.max_retries) {
+            const nowRemaining = deadline - Date.now();
+            if (nowRemaining < 3000) throw new LLMError(`Retry budget exhausted before network retry: ${e.message}`);
             httpRetries++;
             const delay = this.calcDelay(undefined, undefined, httpRetries);
             log("WARN", "llm", "network error, retrying", { error: e.message, attempt: `${httpRetries}/${r.max_retries}`, delay: `${delay.toFixed(1)}s` });

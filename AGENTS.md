@@ -35,9 +35,9 @@ npx tsx test/json-utils-test.ts
 
 ```
 src/index.ts          入口：加载配置 → 创建 McpServer → 注册工具 → 注册 prompts → stdio 传输 → 启动 → 监听 config 文件变更热重载
-src/config.ts         配置加载：项目 config.json ⊕ 用户 ~/.config/.../...json ⊕ 环境变量，deepMerge 合并。导出 resolveProviderImageDim 按 provider 能力差异化解析图片尺寸
-src/tools.ts          MCP 工具注册：analyze_image / extract_text / extract_structured / compare_images / analyze_screenshot / ping。接收 getConfig() 函数，每次调用获取最新配置
-src/prompts.ts        MCP prompt 注册：ocr / describe / compare / ui-tree（用户手动 /命令，注入指令引导 AI 调用对应工具）
+src/config.ts         配置加载：项目 config.json ⊕ 用户 ~/.config/.../...json ⊕ 环境变量，deepMerge 合并。导出 resolveProviderImageDim：provider.max_image_dim ?? global.max_image_dim（2 层）
+src/tools.ts          MCP 工具注册：analyze_image / extract_text / extract_structured / ping。接收 getConfig() 函数，每次调用获取最新配置。含 provider fallback 链 + 健康追踪
+src/prompts.ts        MCP prompt 注册：ocr / describe / compare（用户手动 /命令，注入指令引导 AI 调用对应工具）
 src/llm-client.ts     LLM HTTP 客户端：OpenAI 兼容 chat/completions，含超时/重试/jsonMode 降级
 src/image-loader.ts   图片加载：file/URL/base64/data-URI → buffer → sharp 预处理 → base64 + 尺寸元数据（origWidth/scaledWidth 供 bbox 换算）
 src/json-utils.ts     JSON 容错解析：6 种策略（直接解析/提取大括号/去 markdown/单引号/尾逗号/组合）
@@ -50,7 +50,7 @@ src/logger.ts         结构化日志器：时间戳 + 级别 + 类别 + reqId +
 用户调用 prompt → prompts.ts handler → 返回 { messages } 注入对话 → AI 按指令调用工具
 ```
 
-MCP 三种能力：tools（AI 自主调用，6 个）、prompts（用户手动 /命令，4 个）、resources（未用）。
+MCP 三种能力：tools（AI 自主调用，4 个）、prompts（用户手动 /命令，3 个）、resources（未用）。
 首次 `server.prompt()` 调用时 SDK 自动注册 `prompts` capability，无需改 `McpServer` 构造。
 
 ### Config 热重载
@@ -214,10 +214,10 @@ opencode（`~/.config/opencode/opencode.jsonc`）：
 新增 MCP 工具的步骤：
 
 1. 在 `src/tools.ts` 的 `registerTools` 函数内，用 `server.tool(name, desc, zodSchema, handler)` 注册
-2. Zod schema 定义参数，每个字段加 `.describe()` 说明用途。通用参数用共享常量：`detailParam`、`maxTokensParam`、`timeoutParam`
-3. 所有工具应加 `timeout` 参数（用共享 `timeoutParam` 常量），透传给 `visionChat`
-4. handler 用 `runTool(name, startFields, fn)` 包裹，它自动处理 try/catch + errorResponse + reqId + 日志计时
-5. 调用 `client.visionChat` 时透传 options：`{ maxTokens: p.max_tokens, timeout: p.timeout }`（需要 JSON 输出时加 `jsonMode: true`）
+2. Zod schema 定义参数，每个字段加 `.describe()` 说明用途。通用参数用共享常量：`maxTokensParam`
+3. handler 用 `runTool(name, startFields, fn)` 包裹，它自动处理 try/catch + errorResponse + reqId + 日志计时
+4. 用 `withFallback(config, toolName, fn)` 包裹 LLM 调用，自动处理 provider 降级 + 健康追踪
+5. 调用 `client.visionChat` 时透传 options：`{ maxTokens: p.max_tokens, timeout }`（需要 JSON 输出时加 `jsonMode: true`）
 6. 需要结构化 JSON 输出的工具，传 `jsonMode: true`（如 `extract_structured`）
 7. `safeJsonParse` 解析失败时，可追加纠正 prompt 重试一次（见 `extract_structured` 的实现）
 
@@ -229,39 +229,29 @@ opencode（`~/.config/opencode/opencode.jsonc`）：
 2. Zod schema 定义参数，每个字段加 `.describe()` 说明用途
 3. handler 返回 `{ messages: [{ role: "user", content: { type: "text", text } }] }`（注意：与 tool 的 `{ content }` 不同，prompt 返回 `messages`）
 4. **薄转发**：prompt 注入一句指令让 AI 调用对应 tool（如 `ocr` → `extract_text`）
-5. **富指令**：prompt 注入多步工作流，引导 AI 提取+推理+建议（如 `ui-tree` → `analyze_screenshot` + 结构分析 + 操作建议）
+5. **富指令**：prompt 注入多步工作流，引导 AI 提取+推理+建议
 6. prompt handler 是纯函数（无 I/O、不调 LLM），无需 try/catch 和 errorResponse
 7. `registerPrompts(server, getConfig)` 签名与 `registerTools` 一致（接收 `GetConfig = () => AppConfig` 函数，非静态 config 对象）；在 `index.ts` 中紧跟 `registerTools` 之后调用
 8. 首次注册 prompt 时 SDK 自动通告 `prompts` capability，客户端（opencode/openclaw）通过 `mcp.prompts()` 自动发现
 
-当前已注册的 4 个 prompt：
+当前已注册的 3 个 prompt：
 
 | Prompt | 风格 | 转发目标 | 参数 |
 |--------|------|----------|------|
 | `ocr` | 薄转发 | `extract_text` | `image` |
 | `describe` | 薄转发 | `analyze_image` | `image`, `focus?` |
-| `compare` | 薄转发 | `compare_images` | `image1`, `image2`, `focus?` |
-| `ui-tree` | 富指令 | `analyze_screenshot` + 推理 | `image`, `format?` |
+| `compare` | 薄转发 | `analyze_image`（多图） | `image1`, `image2`, `focus?` |
 
 ### 工具分类体系
 
-按主流视觉识别任务分两个方向，**新工具专业化、旧工具保留通用**：
+4 个通用工具，不假定输入类型：
 
-**通用图像方向（保留，不假定输入是截图）**：
-- `analyze_image` — 通用描述/问答（Image Captioning / VQA）
-- `extract_text` — OCR 文字提取
+- `analyze_image` — 通用描述/对比（Image Captioning / VQA）。支持单图或图数组（多图时自动切换为对比模式）
+- `extract_text` — OCR 文字提取，语言自动检测
 - `extract_structured` — 按 schema 抽 JSON（KIE 关键信息抽取）
-- `compare_images` — 多图同上下文对比
+- `ping` — 服务健康检查 + 配置查看
 
-**GUI 截图方向（新增，专业）**：
-- `analyze_screenshot` — UI 结构树提取。输入网页/窗体/移动端截图，输出无障碍树（axtree 文本或 JSON），每元素带 role/name/ref/bbox，给 agent 操作用。bbox 基于原始截图坐标系（handler 用 `scale = origWidth/scaledWidth` 精确换算，不依赖调用方）。
-
-**后续路线图（未实现）**：
-- `analyze_document_layout` — 文档版面分析（标题/正文/表格/图片区域 + bbox + text），适合 PDF 截图、扫描件
-- `locate` — Visual Grounding 单点查询（"找到 X"返回 bbox），比整树输出轻量
-- `analyze_chart` — 图表转数据表（可选，`analyze_image` 多数能覆盖）
-
-**注意**：`analyze_screenshot` 仅用于 GUI 截图，普通图片用 `analyze_image`；按自定义 schema 抽字段用 `extract_structured`。批量分析请调用方循环 `analyze_image`（每次独立超时、独立重试），不要做单次大批量工具——MCP 请求-响应模型下长调用会超时卡死。
+**注意**：批量分析请调用方循环 `analyze_image`（每次独立超时、独立重试），不要做单次大批量工具——MCP 请求-响应模型下长调用会超时卡死。
 
 ### 配置
 
@@ -285,26 +275,19 @@ opencode（`~/.config/opencode/opencode.jsonc`）：
 
 ```jsonc
 "capabilities": {
-  "max_image_dim": 4096,          // 模型能接受的最大图片尺寸（超过则降采样到此）
-  "optimal_image_dim": 1600,      // 无 detail 参数时的最佳尺寸（质量/速度平衡）
+  "max_image_dim": 2048,          // 模型能接受的最大图片尺寸（超过则降采样到此）
   "jpeg_quality": 90,             // 该模型专用的 JPEG 质量
-  "detail_presets": {             // 覆盖全局 detail 预设（per-model 定制）；全局默认 768/1024/1920
-    "low": 768, "medium": 1280, "high": 2048
-  },
-  "best_for": ["screenshot", "ocr", "json"],  // 模型强项标签
+  "best_for": ["ocr", "multilingual", "document"],  // 模型强项标签
   "supports_json_mode": true,     // 是否支持 response_format json_object
   "supports_multi_image": true,   // 是否支持多图同请求
-  "rate_limit_tier": "low",       // "none"|"low"|"high" 速率限制等级
-  "max_output_tokens": 8192       // 模型最大输出 token
+  "rate_limit_tier": "none"       // "none"|"low"|"high" 速率限制等级
 }
 ```
 
-图片尺寸解析优先级（`resolveProviderImageDim`）：
-1. 用户指定 `detail` → provider 的 `detail_presets[detail]` → 全局 `detail_presets[detail]`
-2. 未指定 detail → provider 的 `optimal_image_dim` → tool 覆盖 → 全局 `max_image_dim`
-3. 最终值不超过 provider 的 `max_image_dim`（硬上限）
+图片尺寸解析（`resolveProviderImageDim`）：
+- `provider.capabilities.max_image_dim`（优先）→ `config.vision.max_image_dim`（全局默认）
 
-**核心原则**：如果模型支持 4K/8K，不要无脑降采样到 1024——让 `capabilities.max_image_dim` 和 `optimal_image_dim` 驱动预处理决策。
+**核心原则**：分辨率完全由 provider 能力驱动，无 detail 参数、无 tool 覆盖、无 detail_presets。
 
 ### LLM 客户端
 

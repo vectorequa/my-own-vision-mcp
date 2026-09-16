@@ -27,21 +27,7 @@
     "max_image_dim": 1280,
     "jpeg_quality": 85,
     "max_image_size": 20971520,
-    "url_timeout": 30,
-    "detail_presets": {
-      "low": 768,
-      "medium": 1024,
-      "high": 1920
-    },
-    "tools": {
-      "extract_text": {
-        "max_image_dim": 1920,
-        "jpeg_quality": 90
-      },
-      "analyze_screenshot": {
-        "max_image_dim": 1600
-      }
-    }
+    "url_timeout": 30
   },
   "logging": {
     "max_file_size": 1048576,

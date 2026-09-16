@@ -288,14 +288,11 @@ function generateConfigSkeleton(model: OrModel, testResult: TestResult): string 
         "retry": { "max_retries": 2, "max_504_retries": 1, "retry_504_delay": 5.0 },
         "capabilities": {
           "max_image_dim": 2048,
-          "optimal_image_dim": 1024,
           "jpeg_quality": 85,
-          "detail_presets": { "low": 768, "medium": 1024, "high": 2048 },
           "best_for": [],
           "supports_json_mode": ${supportsJson},
           "supports_multi_image": true,
-          "rate_limit_tier": "low",
-          "max_output_tokens": ${maxTokens}
+          "rate_limit_tier": "low"
         }
       }`;
 }
