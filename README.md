@@ -9,6 +9,8 @@ A standalone [Model Context Protocol](https://modelcontextprotocol.io) (MCP) ser
 
 It calls any **OpenAI-compatible vision API** directly (Qwen-VL, GPT-4o, Claude, GLM-4V, etc.) — no Python, no extra services, just Node.js.
 
+> **Works with:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) · [Cursor](https://cursor.com) · [Windsurf](https://windsurf.com) · [Cline](https://github.com/cline/cline) · [opencode](https://opencode.ai) · [openclaw](https://github.com/anthropics/anthropic-quickstarts) · any MCP-compatible client
+
 ---
 
 ## The idea
@@ -41,7 +43,7 @@ Most capable coding agents run on **text-only models** — fast and cheap, but b
 
 ## Why use this?
 
-AI coding agents (opencode, openclaw, Claude Code, Cursor, etc.) can't see images. This MCP server bridges that gap by exposing vision tools that the agent can call autonomously:
+AI coding agents (Claude Code, Cursor, Windsurf, Cline, opencode, openclaw, etc.) can't see images. This MCP server bridges that gap by exposing vision tools that the agent can call autonomously:
 
 | Scenario | Tool | Example |
 |----------|------|---------|
@@ -377,13 +379,21 @@ Any endpoint that implements the OpenAI `POST /v1/chat/completions` format with 
 
 - **Qwen-VL** (Qwen-VL-Max, Qwen2-VL, Qwen3-VL, etc.) via DashScope or self-hosted
 - **OpenAI GPT-4o** / GPT-4o-mini
-- **Google Gemini** via OpenAI-compatible proxy
+- **Google Gemini** (Gemini 2.0 Flash, Gemini 1.5 Pro) via OpenAI-compatible proxy
 - **GLM-4V** (Zhipu AI)
+- **Llama Vision** (Llama 3.2 Vision) via Ollama / vLLM
+- **Pixtral** (Mistral)
+- **InternVL** (OpenVLM)
+- **OpenRouter** — any vision model on OpenRouter (free tier supported)
 - **Local models** via vLLM, Ollama, LM Studio, etc.
 
 Configure multiple providers in `config.json` and select per-tool-call via the `provider` parameter.
 
 ---
+
+## Contributing
+
+Issues and PRs welcome! If this project saves you time or tokens, please ⭐ star the repo — it helps others find it.
 
 ## License
 

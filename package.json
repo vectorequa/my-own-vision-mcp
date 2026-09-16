@@ -30,7 +30,18 @@
     "image-analysis",
     "gui",
     "image-to-json",
-    "agent-tools"
+    "agent-tools",
+    "vlm",
+    "multimodal",
+    "image-to-text",
+    "visual-grounding",
+    "openrouter",
+    "claude-code",
+    "cursor",
+    "windsurf",
+    "cline",
+    "opencode",
+    "openclaw"
   ],
   "engines": {
     "node": ">=18"
