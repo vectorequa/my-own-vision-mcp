@@ -1,0 +1,8 @@
+node_modules/
+dist/
+logs/
+*.log
+
+# Personal/internal files not for public repo
+HANDBOOK.md
+deploy-wsl.sh

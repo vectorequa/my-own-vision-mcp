@@ -1,0 +1,50 @@
+{
+  "llm": {
+    "default_provider": "qwen",
+    "providers": {
+      "qwen": {
+        "enable": true,
+        "url": "https://your-api-endpoint/v1",
+        "api_key": "YOUR_API_KEY",
+        "model": "YOUR_MODEL",
+        "max_tokens": 16384,
+        "timeout": 120,
+        "retry": {
+          "max_retries": 3,
+          "max_504_retries": 1,
+          "base_delay": 1.0,
+          "max_delay": 30.0,
+          "jitter": 0.5,
+          "retry_on_status": [429, 500, 502, 503, 504],
+          "retry_504_delay": 10.0,
+          "empty_retries": 3,
+          "empty_retry_delay": 1.5
+        }
+      }
+    }
+  },
+  "vision": {
+    "max_image_dim": 1280,
+    "jpeg_quality": 85,
+    "max_image_size": 20971520,
+    "url_timeout": 30,
+    "detail_presets": {
+      "low": 768,
+      "medium": 1024,
+      "high": 1920
+    },
+    "tools": {
+      "extract_text": {
+        "max_image_dim": 1920,
+        "jpeg_quality": 90
+      },
+      "analyze_screenshot": {
+        "max_image_dim": 1600
+      }
+    }
+  },
+  "logging": {
+    "max_file_size": 1048576,
+    "max_files": 10
+  }
+}
