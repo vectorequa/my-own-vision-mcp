@@ -198,6 +198,7 @@ export function registerTools(server: McpServer, getConfig: GetConfig): void {
       detail: detailParam,
       provider: providerParam,
     },
+    { title: "Analyze Image", readOnlyHint: true, openWorldHint: true },
     async (p) => runTool("analyze_image", { image: Array.isArray(p.image) ? `${p.image.length} images` : describeImageSource(p.image) }, async () => {
       const config = getConfig();
       const images = Array.isArray(p.image) ? p.image : [p.image];
@@ -229,6 +230,7 @@ export function registerTools(server: McpServer, getConfig: GetConfig): void {
       detail: detailParam,
       provider: providerParam,
     },
+    { title: "Extract Text (OCR)", readOnlyHint: true, openWorldHint: true },
     async (p) => runTool("extract_text", { image: describeImageSource(p.image) }, async () => {
       const config = getConfig();
       const { result } = await withFallback(config, "extract_text", async (providerName, timeout) => {
@@ -254,6 +256,7 @@ export function registerTools(server: McpServer, getConfig: GetConfig): void {
       detail: detailParam,
       provider: providerParam,
     },
+    { title: "Extract Structured Data", readOnlyHint: true, openWorldHint: true },
     async (p) => runTool("extract_structured", { image: describeImageSource(p.image) }, async (reqId) => {
       const config = getConfig();
       const prompt = p.prompt || `Analyze the image and extract information into JSON. You MUST use exactly the field names defined in the schema below. Do not add, remove, or rename fields. Do not wrap in markdown code blocks. Return only raw JSON.\nSchema:\n${p.schema}`;
@@ -288,6 +291,7 @@ export function registerTools(server: McpServer, getConfig: GetConfig): void {
     "ping",
     "Check server health, provider list, and configuration.",
     {},
+    { title: "Ping", readOnlyHint: true, openWorldHint: false },
     async () => runTool("ping", {}, async () => {
       const config = getConfig();
       const providerName = config.llm.default_provider;

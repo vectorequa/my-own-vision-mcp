@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
+import { lookup } from "node:dns/promises";
 import type { VisionConfig } from "./config.js";
 import { log } from "./logger.js";
 
@@ -85,6 +86,50 @@ function resolveMime(buffer: Buffer, hint?: string): string {
   return "image/jpeg";
 }
 
+function isPrivateIP(ip: string): boolean {
+  const v6mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (v6mapped) ip = v6mapped[1];
+
+  if (ip.includes(".")) {
+    const parts = ip.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) return false;
+    if (parts[0] === 0) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    return false;
+  }
+
+  const lower = ip.toLowerCase();
+  if (lower === "::") return true;
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+  if (lower.startsWith("fe80")) return true;
+  return false;
+}
+
+async function validateImageUrl(url: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new ImageError(`Invalid URL: ${url.slice(0, 120)}`);
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new ImageError(`Blocked URL scheme: ${parsed.protocol} (only http/https allowed)`);
+  }
+
+  try {
+    const { address } = await lookup(parsed.hostname);
+    if (isPrivateIP(address)) {
+      throw new ImageError(`Blocked internal/private address: ${parsed.hostname} resolves to ${address}`);
+    }
+  } catch (e) {
+    if (e instanceof ImageError) throw e;
+  }
+}
+
 export async function loadAsBuffer(
   source: string,
   vision: VisionConfig,
@@ -108,6 +153,7 @@ export async function loadAsBuffer(
   }
 
   if (source.startsWith("http://") || source.startsWith("https://")) {
+    await validateImageUrl(source);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), vision.url_timeout * 1000);
     let resp: Response;
