@@ -23,7 +23,6 @@ node dist/index.js   # 应输出 config loaded / sharp 状态 / server started�
 ```bash
 npx tsx test/image-loader-test.ts
 npx tsx test/retry-test.ts
-npx tsx test/analyze-screenshot-test.ts
 npx tsx test/json-utils-test.ts
 ```
 
@@ -71,6 +70,15 @@ MCP 三种能力：tools（AI 自主调用，4 个）、prompts（用户手动 /
 5. **不引入新依赖**除非确实必要。当前仅依赖 `@modelcontextprotocol/sdk` 和 `zod`。
 6. **不加注释**除非用户明确要求。
 7. **配置三层覆盖**：项目 config.json → 用户 ~/.config/.../...json → 环境变量。不要在代码里硬编码 API key 或 URL。
+8. **这是公开仓库**——每次 commit 都会推到 GitHub，全世界可见。提交前自问：这段内容如果被陌生人看到，会不会暴露我的服务器、密钥、或个人信息？隐私 = api_key / token / 密码 / 自部署域名 / 个人路径 / 日志内容 / 本地手册。`config.json` 只放占位符（`YOUR_API_KEY`），真实值放用户配置（不进 git）。`.gitignore` 已覆盖 `logs/` `dist/` `HANDBOOK.md` `deploy-wsl.sh`，不要绕过。
+
+---
+
+## MCP 规范合规
+
+本项目遵循 [MCP 规范 2026-07-28](https://modelcontextprotocol.io/docs/concepts/tools)。开发时参考该文档，确保从调用者（LLM / agent）角度有良好设计。
+
+关键点：工具执行错误用 `isError: true` + 纯文本标记；`ping` 不泄露 api_key / url；工具描述足够 LLM 判断何时使用。
 
 ---
 
@@ -205,8 +213,9 @@ opencode（`~/.config/opencode/opencode.jsonc`）：
 
 ### 错误处理
 
-- 工具 handler 必须用 `try/catch` 包裹，catch 里调用 `errorResponse(toolName, e)` 返回结构化错误
+- 工具 handler 必须用 `try/catch` 包裹，catch 里调用 `errorResponse(toolName, e)` 返回 `isError: true` 错误结果
 - 不要让异常冒泡到 MCP 框架（会导致连接断开）
+- `errorResponse` 返回纯文本 `Error: <msg>` + `isError: true`，不包裹 JSON
 - LLM 调用错误分三类：`LLMHttpError`（HTTP 状态码）、`LLMNetworkError`（网络/超时）、`LLMError`（其他）
 
 ### 工具开发
@@ -214,12 +223,13 @@ opencode（`~/.config/opencode/opencode.jsonc`）：
 新增 MCP 工具的步骤：
 
 1. 在 `src/tools.ts` 的 `registerTools` 函数内，用 `server.tool(name, desc, zodSchema, handler)` 注册
-2. Zod schema 定义参数，每个字段加 `.describe()` 说明用途。通用参数用共享常量：`maxTokensParam`
+2. Zod schema 定义参数（raw shape 对象，非 `z.object()` 包装），每个字段加 `.describe()` 说明用途。通用参数用共享常量：`maxTokensParam`、`detailParam`、`providerParam`
 3. handler 用 `runTool(name, startFields, fn)` 包裹，它自动处理 try/catch + errorResponse + reqId + 日志计时
-4. 用 `withFallback(config, toolName, fn)` 包裹 LLM 调用，自动处理 provider 降级 + 健康追踪
-5. 调用 `client.visionChat` 时透传 options：`{ maxTokens: p.max_tokens, timeout }`（需要 JSON 输出时加 `jsonMode: true`）
-6. 需要结构化 JSON 输出的工具，传 `jsonMode: true`（如 `extract_structured`）
-7. `safeJsonParse` 解析失败时，可追加纠正 prompt 重试一次（见 `extract_structured` 的实现）
+4. 用 `withFallback(config, toolName, fn, p.provider)` 包裹 LLM 调用，自动处理 provider 降级 + 健康追踪。第 4 参数为可选首选 provider
+5. 用 `computeImageOverrides(config, providerName, p.detail)` 计算图片预处理参数，detail 按比例缩放 max_image_dim（low=50% / medium=75% / high=auto=100%）
+6. 调用 `client.visionChat` 时透传 options：`{ maxTokens: p.max_tokens, timeout }`（需要 JSON 输出时加 `jsonMode: true`）
+7. 需要结构化 JSON 输出的工具，传 `jsonMode: true`（如 `extract_structured`）
+8. `safeJsonParse` 解析失败时，可追加纠正 prompt 重试一次（见 `extract_structured` 的实现）
 
 ### Prompt 开发
 
@@ -246,10 +256,14 @@ opencode（`~/.config/opencode/opencode.jsonc`）：
 
 4 个通用工具，不假定输入类型：
 
-- `analyze_image` — 通用描述/对比（Image Captioning / VQA）。支持单图或图数组（多图时自动切换为对比模式）
-- `extract_text` — OCR 文字提取，语言自动检测
-- `extract_structured` — 按 schema 抽 JSON（KIE 关键信息抽取）
-- `ping` — 服务健康检查 + 配置查看
+- `analyze_image` — 通用描述/对比（Image Captioning / VQA）。支持单图或图数组（多图时自动切换为对比模式）。参数：`image`, `prompt?`, `max_tokens?`, `detail?`, `provider?`
+- `extract_text` — OCR 文字提取，语言自动检测。参数：`image`, `max_tokens?`, `detail?`, `provider?`
+- `extract_structured` — 按 schema 抽 JSON（KIE 关键信息抽取）。参数：`image`, `schema`, `prompt?`, `max_tokens?`, `detail?`, `provider?`
+- `ping` — 服务健康检查 + 配置查看。无参数
+
+通用可选参数：
+- `detail` — `"low"|"medium"|"high"|"auto"`（默认 `auto`）。按 provider `max_image_dim` 的比例缩放：low=50%、medium=75%、high=auto=100%。降低分辨率 = 更少 vision tokens = 更快更省
+- `provider` — 首选 provider 名称（用 `ping` 查看可用列表）。指定时作为首选，失败仍自动 fallback 到其他 provider
 
 **注意**：批量分析请调用方循环 `analyze_image`（每次独立超时、独立重试），不要做单次大批量工具——MCP 请求-响应模型下长调用会超时卡死。
 

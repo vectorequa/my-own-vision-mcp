@@ -194,7 +194,7 @@ export async function preprocess(
   try {
     const meta = await sharp(buffer).metadata();
     const maxDim = Math.max(meta.width || 0, meta.height || 0);
-    let pipeline = sharp(buffer);
+    let pipeline = sharp(buffer).rotate();
 
     if (maxDim > maxImageDim) {
       pipeline = pipeline.resize({

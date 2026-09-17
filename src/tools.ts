@@ -13,7 +13,7 @@ const DEFAULT_RECOGNIZE_PROMPT = "Describe this image in detail.";
 const DEFAULT_OCR_PROMPT = "Extract ALL text from the image exactly as shown, preserving original layout and line breaks. The text may be in any language (Thai, Chinese, English, Korean, Japanese, Arabic, etc.). Return only the extracted text, no explanation or commentary.";
 const DEFAULT_COMPARE_PROMPT = "Compare these two images. Describe their similarities and differences.";
 
-type ToolResult = { content: [{ type: "text"; text: string }] };
+type ToolResult = { content: [{ type: "text"; text: string }]; isError?: boolean };
 
 function makeClient(config: AppConfig, providerName?: string): LLMClient {
   const provider = getProvider(config, providerName);
@@ -23,18 +23,37 @@ function makeClient(config: AppConfig, providerName?: string): LLMClient {
 function errorResponse(tool: string, e: unknown, reqId: string): ToolResult {
   const msg = e instanceof Error ? e.message : String(e);
   log("ERROR", "tool", "call failed", { call: tool, reqId, error: msg });
-  return { content: [{ type: "text", text: JSON.stringify({ error: msg, data: null }) }] };
+  return { content: [{ type: "text", text: `Error: ${msg}` }], isError: true };
 }
 
 const maxTokensParam = z.number().optional().describe(
   "Max output tokens. 2048=brief, 8192=detailed, 16384=large."
 );
 
+const detailParam = z.enum(["low", "medium", "high", "auto"]).optional().describe(
+  "Image resolution: low=50% (fastest), medium=75%, high=100% (best), auto=100% (default). " +
+  "Percentage of provider max_image_dim. Lower = fewer vision tokens = faster + cheaper."
+);
+
+const providerParam = z.string().optional().describe(
+  "Preferred LLM provider name (use ping to see available). Falls back to others if this one fails."
+);
+
+const DETAIL_RATIOS: Record<string, number> = { low: 0.5, medium: 0.75, high: 1.0, auto: 1.0 };
+
 function computeImageOverrides(
   config: AppConfig,
   providerName: string | undefined,
+  detail?: string,
 ): { maxImageDim?: number; jpegQuality?: number } {
-  return resolveProviderImageDim(config, providerName);
+  const overrides = resolveProviderImageDim(config, providerName);
+  if (detail && detail !== "auto") {
+    const ratio = DETAIL_RATIOS[detail] ?? 1.0;
+    if (overrides.maxImageDim) {
+      return { ...overrides, maxImageDim: Math.round(overrides.maxImageDim * ratio) };
+    }
+  }
+  return overrides;
 }
 
 const TASK_BEST_FOR: Record<string, string[]> = {
@@ -94,8 +113,17 @@ async function withFallback<T>(
   config: AppConfig,
   toolName: string,
   fn: (providerName: string, timeout: number) => Promise<T>,
+  preferredProvider?: string,
 ): Promise<{ result: T; provider: string }> {
-  const allProviders = getOrderedProviders(config, toolName);
+  let allProviders = getOrderedProviders(config, toolName);
+
+  const effectivePreferred = preferredProvider || config.llm.default_provider;
+  if (effectivePreferred && allProviders.includes(effectivePreferred)) {
+    allProviders = [effectivePreferred, ...allProviders.filter((p) => p !== effectivePreferred)];
+  } else if (preferredProvider && !allProviders.includes(preferredProvider)) {
+    log("WARN", "tool", "preferred provider not available, using default order", { preferred: preferredProvider });
+  }
+
   const providers = allProviders.filter((name) => {
     if (!isProviderHealthy(name)) {
       const entry = providerHealth.get(name)!;
@@ -167,6 +195,8 @@ export function registerTools(server: McpServer, getConfig: GetConfig): void {
       image: z.string().or(z.array(z.string())).describe("Image path/base64/URL, or array for multiple images"),
       prompt: z.string().optional().describe("Custom analysis prompt (default: describe, or compare if multiple images)"),
       max_tokens: maxTokensParam,
+      detail: detailParam,
+      provider: providerParam,
     },
     async (p) => runTool("analyze_image", { image: Array.isArray(p.image) ? `${p.image.length} images` : describeImageSource(p.image) }, async () => {
       const config = getConfig();
@@ -174,33 +204,40 @@ export function registerTools(server: McpServer, getConfig: GetConfig): void {
       const prompt = p.prompt || (images.length > 1 ? DEFAULT_COMPARE_PROMPT : DEFAULT_RECOGNIZE_PROMPT);
       const { result } = await withFallback(config, "analyze_image", async (providerName, timeout) => {
         const client = makeClient(config, providerName);
-        const overrides = computeImageOverrides(config, providerName);
+        const overrides = computeImageOverrides(config, providerName, p.detail);
         const encoded = await Promise.all(images.map((src) => imageToBase64(src, config.vision, overrides)));
+        for (const e of encoded) {
+          log("INFO", "tool", "image preprocessed", { orig: `${e.origWidth}x${e.origHeight}`, scaled: `${e.scaledWidth}x${e.scaledHeight}`, provider: providerName });
+        }
         if (encoded.length === 1) {
           return client.visionChat(prompt, encoded[0].base64, encoded[0].mimeType, { maxTokens: p.max_tokens, timeout });
         }
         return client.visionChatMultiImage(prompt, encoded.map((e) => ({ base64: e.base64, mimeType: e.mimeType })), { maxTokens: p.max_tokens, timeout });
-      });
+      }, p.provider);
       return result;
     }),
   );
 
   server.tool(
     "extract_text",
-    "OCR: extract all text from image, preserving layout. Auto-detects any language. " +
-    "Resolution follows provider capability (max_image_dim).",
+    "OCR: extract all text from image, preserving layout and line breaks. " +
+    "Handles documents, screenshots, receipts, signs, handwriting, multi-language (auto-detected: Thai, Chinese, English, Japanese, Korean, Arabic, etc.). " +
+    "Use for any 'read the text' task. Returns only extracted text, no commentary.",
     {
       image: z.string().describe("Image path, base64, or URL"),
       max_tokens: maxTokensParam,
+      detail: detailParam,
+      provider: providerParam,
     },
     async (p) => runTool("extract_text", { image: describeImageSource(p.image) }, async () => {
       const config = getConfig();
       const { result } = await withFallback(config, "extract_text", async (providerName, timeout) => {
         const client = makeClient(config, providerName);
-        const overrides = computeImageOverrides(config, providerName);
-        const { base64, mimeType } = await imageToBase64(p.image, config.vision, overrides);
-        return client.visionChat(DEFAULT_OCR_PROMPT, base64, mimeType, { maxTokens: p.max_tokens, timeout });
-      });
+        const overrides = computeImageOverrides(config, providerName, p.detail);
+        const encoded = await imageToBase64(p.image, config.vision, overrides);
+        log("INFO", "tool", "image preprocessed", { orig: `${encoded.origWidth}x${encoded.origHeight}`, scaled: `${encoded.scaledWidth}x${encoded.scaledHeight}`, provider: providerName });
+        return client.visionChat(DEFAULT_OCR_PROMPT, encoded.base64, encoded.mimeType, { maxTokens: p.max_tokens, timeout });
+      }, p.provider);
       return result;
     }),
   );
@@ -214,16 +251,19 @@ export function registerTools(server: McpServer, getConfig: GetConfig): void {
       schema: z.string().describe("JSON schema (e.g. '{\"name\": string, \"age\": number}')"),
       prompt: z.string().optional().describe("Custom extraction prompt (default: auto-generated from schema)"),
       max_tokens: maxTokensParam,
+      detail: detailParam,
+      provider: providerParam,
     },
     async (p) => runTool("extract_structured", { image: describeImageSource(p.image) }, async (reqId) => {
       const config = getConfig();
       const prompt = p.prompt || `Analyze the image and extract information into JSON. You MUST use exactly the field names defined in the schema below. Do not add, remove, or rename fields. Do not wrap in markdown code blocks. Return only raw JSON.\nSchema:\n${p.schema}`;
       const { result: response, provider: usedProvider } = await withFallback(config, "extract_structured", async (providerName, timeout) => {
         const client = makeClient(config, providerName);
-        const overrides = computeImageOverrides(config, providerName);
-        const { base64, mimeType } = await imageToBase64(p.image, config.vision, overrides);
-        return client.visionChat(prompt, base64, mimeType, { jsonMode: true, maxTokens: p.max_tokens, timeout });
-      });
+        const overrides = computeImageOverrides(config, providerName, p.detail);
+        const encoded = await imageToBase64(p.image, config.vision, overrides);
+        log("INFO", "tool", "image preprocessed", { orig: `${encoded.origWidth}x${encoded.origHeight}`, scaled: `${encoded.scaledWidth}x${encoded.scaledHeight}`, provider: providerName });
+        return client.visionChat(prompt, encoded.base64, encoded.mimeType, { jsonMode: true, maxTokens: p.max_tokens, timeout });
+      }, p.provider);
       const parsed = safeJsonParse(response);
       if (parsed !== null) return JSON.stringify(parsed);
 
@@ -231,15 +271,16 @@ export function registerTools(server: McpServer, getConfig: GetConfig): void {
       const retryPrompt = `Your previous response was not valid JSON. Return ONLY raw JSON, no markdown, no explanation. Schema:\n${p.schema}`;
       const { result: response2 } = await withFallback(config, "extract_structured", async (providerName, timeout) => {
         const client = makeClient(config, providerName);
-        const overrides = computeImageOverrides(config, providerName);
-        const { base64, mimeType } = await imageToBase64(p.image, config.vision, overrides);
-        return client.visionChat(retryPrompt, base64, mimeType, { jsonMode: true, maxTokens: p.max_tokens, timeout });
-      });
+        const overrides = computeImageOverrides(config, providerName, p.detail);
+        const encoded = await imageToBase64(p.image, config.vision, overrides);
+        log("INFO", "tool", "image preprocessed", { orig: `${encoded.origWidth}x${encoded.origHeight}`, scaled: `${encoded.scaledWidth}x${encoded.scaledHeight}`, provider: providerName });
+        return client.visionChat(retryPrompt, encoded.base64, encoded.mimeType, { jsonMode: true, maxTokens: p.max_tokens, timeout });
+      }, p.provider);
       const parsed2 = safeJsonParse(response2);
       if (parsed2 !== null) return JSON.stringify(parsed2);
 
       log("ERROR", "tool", "parse failed after retry", { call: "extract_structured", reqId });
-      return JSON.stringify({ error: "JSON parse failed after retry", raw: response2.slice(0, 500) });
+      throw new Error(`JSON parse failed after retry. Last response (500 chars): ${response2.slice(0, 500)}`);
     }),
   );
 

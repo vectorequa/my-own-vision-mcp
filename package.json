@@ -1,7 +1,7 @@
 {
   "name": "my-own-vision-mcp",
-  "version": "0.1.1",
-  "description": "Standalone MCP server for image recognition via LLM vision API — OCR, image analysis, structured extraction, screenshot-to-accessibility-tree",
+  "version": "0.1.2",
+  "description": "Standalone MCP server for image recognition via LLM vision API — OCR, image analysis, structured extraction, image comparison",
   "type": "module",
   "main": "dist/index.js",
   "license": "MIT",
@@ -23,7 +23,6 @@
     "llm",
     "ai",
     "screenshot",
-    "accessibility-tree",
     "openai-compatible",
     "qwen-vl",
     "computer-vision",

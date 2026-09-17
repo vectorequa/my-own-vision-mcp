@@ -16,7 +16,7 @@ async function main(): Promise<void> {
 
   const server = new McpServer({
     name: "my-own-vision-mcp",
-    version: "0.1.1",
+    version: "0.1.2",
   });
   registerTools(server, getConfig);
   registerPrompts(server, getConfig);

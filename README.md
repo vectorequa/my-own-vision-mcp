@@ -5,7 +5,7 @@
 [![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-blue.svg)](https://modelcontextprotocol.io)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org)
 
-A standalone [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that gives AI agents **vision capabilities** — image analysis, OCR, structured extraction, image comparison, and GUI screenshot-to-accessibility-tree conversion.
+A standalone [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that gives AI agents **vision capabilities** — image analysis, OCR, structured extraction, and image comparison.
 
 It calls any **OpenAI-compatible vision API** directly (Qwen-VL, GPT-4o, Claude, GLM-4V, etc.) — no Python, no extra services, just Node.js.
 
@@ -148,8 +148,6 @@ Ask your agent to call the `ping` tool. You should get:
   "model": "your-model-name",
   "max_tokens": 16384,
   "timeout": 120,
-  "max_retries": 3,
-  "max_504_retries": 1,
   "all_providers": { "qwen": { "model": "your-model-name" } },
   "vision": {
     "max_image_dim": 1280,
@@ -166,9 +164,9 @@ Ask your agent to call the `ping` tool. You should get:
 
 | Tool | Description | Key params |
 |------|-------------|------------|
-| `analyze_image` | Analyze or compare image(s). Pass single image or array for multi-image. | `image`, `prompt?`, `max_tokens?` |
-| `extract_text` | OCR: extract all text, preserving layout. Auto-detects language. | `image`, `max_tokens?` |
-| `extract_structured` | Extract structured JSON guided by a schema. | `image`, `schema`, `prompt?`, `max_tokens?` |
+| `analyze_image` | Analyze or compare image(s). Pass single image or array for multi-image. | `image`, `prompt?`, `max_tokens?`, `detail?`, `provider?` |
+| `extract_text` | OCR: extract all text, preserving layout. Auto-detects language. | `image`, `max_tokens?`, `detail?`, `provider?` |
+| `extract_structured` | Extract structured JSON guided by a schema. | `image`, `schema`, `prompt?`, `max_tokens?`, `detail?`, `provider?` |
 | `ping` | Check server health and config. | — |
 
 ### Prompts (user-invoked workflows)
@@ -188,8 +186,8 @@ All tools (except `ping`) accept:
 | Parameter | Description |
 |-----------|-------------|
 | `max_tokens` | Max output tokens. 2048=brief, 8192=detailed, 16384=large. |
-
-Image resolution is determined by `provider.capabilities.max_image_dim` — no manual override needed.
+| `detail` | Image resolution: `low` (50%, fastest), `medium` (75%), `high` (100%, best), `auto` (100%, default). Percentage of provider `max_image_dim`. Lower = fewer vision tokens = faster + cheaper. |
+| `provider` | Preferred LLM provider name (use `ping` to see available). Falls back to other providers if this one fails. |
 
 ---
 
@@ -319,7 +317,6 @@ Tests (hand-written, no framework):
 ```bash
 npx tsx test/image-loader-test.ts
 npx tsx test/retry-test.ts
-npx tsx test/analyze-screenshot-test.ts
 npx tsx test/json-utils-test.ts
 ```
 
@@ -331,12 +328,12 @@ This project uses **dual versioning**:
 
 | System | Where | Format | Example | Purpose |
 |--------|-------|--------|---------|---------|
-| **SemVer** | `package.json` `version` | `MAJOR.MINOR.PATCH` | `0.1.1` | Dependency compatibility |
+| **SemVer** | `package.json` `version` | `MAJOR.MINOR.PATCH` | `0.1.2` | Dependency compatibility |
 | **CalVer** | Git tag + GitHub release | `vYYYY.MM.PATCH` | `v2026.09.0` | Release timeline |
 
 - `package.json` version follows [Semantic Versioning](https://semver.org/) — breaking changes bump MAJOR, new features bump MINOR, fixes bump PATCH
 - Git release tags follow calendar versioning — `v2026.09.0` is the first release in Sep 2026, `v2026.09.1` is the second, etc.
-- Each GitHub release title shows both: `v2026.09.0 (SemVer 0.1.1)`
+- Each GitHub release title shows both: `v2026.09.0 (SemVer 0.1.2)`
 
 ---
 
