@@ -41,6 +41,7 @@ export interface ProviderConfig {
   retry: RetryConfig;
   extra_notes?: string;
   capabilities?: ProviderCapabilities;
+  extra_body?: Record<string, unknown>;
 }
 
 export interface VisionConfig {

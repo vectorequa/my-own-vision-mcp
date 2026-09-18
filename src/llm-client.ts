@@ -58,6 +58,7 @@ export class LLMClient {
   private maxTokens: number;
   private timeout: number;
   private retry: RetryConfig;
+  private extraBody: Record<string, unknown> | undefined;
 
   constructor(provider: ProviderConfig) {
     this.url = `${provider.url.replace(/\/+$/, "")}/chat/completions`;
@@ -66,6 +67,7 @@ export class LLMClient {
     this.maxTokens = provider.max_tokens;
     this.timeout = provider.timeout * 1000;
     this.retry = provider.retry;
+    this.extraBody = provider.extra_body;
   }
 
   private calcDelay(
@@ -93,9 +95,10 @@ export class LLMClient {
 
   private async doRequest(
     messages: ChatMessage[],
-    options?: { jsonMode?: boolean; maxTokens?: number; timeout?: number },
+    options?: { jsonMode?: boolean; maxTokens?: number; timeout?: number; stripExtraBody?: boolean },
   ): Promise<string> {
     const payload: Record<string, unknown> = {
+      ...(options?.stripExtraBody ? {} : this.extraBody || {}),
       model: this.model,
       messages,
       stream: false,
@@ -145,6 +148,11 @@ export class LLMClient {
 
       if (response.status === 400 && options?.jsonMode && errBody.includes("response_format")) {
         return this.doRequest(messages, { ...options, jsonMode: false });
+      }
+
+      if (response.status === 400 && this.extraBody && !options?.stripExtraBody) {
+        log("WARN", "llm", "extra_body rejected with 400, retrying without", {});
+        return this.doRequest(messages, { ...options, stripExtraBody: true });
       }
 
       const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
