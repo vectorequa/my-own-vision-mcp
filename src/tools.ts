@@ -45,7 +45,7 @@ function computeImageOverrides(
   config: AppConfig,
   providerName: string | undefined,
   detail?: string,
-): { maxImageDim?: number; jpegQuality?: number } {
+): { maxImageDim?: number; minImageDim?: number; jpegQuality?: number } {
   const overrides = resolveProviderImageDim(config, providerName);
   if (detail && detail !== "auto") {
     const ratio = DETAIL_RATIOS[detail] ?? 1.0;

@@ -24,6 +24,7 @@ export interface RetryConfig {
 
 export interface ProviderCapabilities {
   max_image_dim?: number;
+  min_image_dim?: number;
   jpeg_quality?: number;
   best_for?: string[];
   supports_json_mode?: boolean;
@@ -46,6 +47,7 @@ export interface ProviderConfig {
 
 export interface VisionConfig {
   max_image_dim: number;
+  min_image_dim: number;
   jpeg_quality: number;
   max_image_size: number;
   url_timeout: number;
@@ -155,6 +157,7 @@ export function loadConfig(): AppConfig {
 
   if (!raw.vision) raw.vision = {};
   if (!raw.vision.max_image_dim) raw.vision.max_image_dim = 1280;
+  if (!raw.vision.min_image_dim) raw.vision.min_image_dim = 0;
   if (!raw.vision.jpeg_quality) raw.vision.jpeg_quality = 85;
   if (!raw.vision.max_image_size) raw.vision.max_image_size = 20 * 1024 * 1024;
   if (!raw.vision.url_timeout) raw.vision.url_timeout = 30;
@@ -197,10 +200,11 @@ export function getProviderCapabilities(config: AppConfig, providerName?: string
 export function resolveProviderImageDim(
   config: AppConfig,
   providerName: string | undefined,
-): { maxImageDim?: number; jpegQuality?: number } {
+): { maxImageDim?: number; minImageDim?: number; jpegQuality?: number } {
   const caps = getProviderCapabilities(config, providerName);
   return {
     maxImageDim: caps.max_image_dim ?? config.vision.max_image_dim,
+    minImageDim: caps.min_image_dim ?? config.vision.min_image_dim,
     jpegQuality: caps.jpeg_quality ?? config.vision.jpeg_quality,
   };
 }

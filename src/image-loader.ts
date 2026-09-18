@@ -216,7 +216,7 @@ export async function loadAsBuffer(
 export async function preprocess(
   buffer: Buffer,
   vision: VisionConfig,
-  overrides?: { maxImageDim?: number; jpegQuality?: number },
+  overrides?: { maxImageDim?: number; minImageDim?: number; jpegQuality?: number },
 ): Promise<ImageEncoded> {
   const sharp = await getSharp();
   if (!sharp) {
@@ -235,11 +235,13 @@ export async function preprocess(
   }
 
   const maxImageDim = overrides?.maxImageDim ?? vision.max_image_dim;
+  const minImageDim = overrides?.minImageDim ?? vision.min_image_dim;
   const jpegQuality = overrides?.jpegQuality ?? vision.jpeg_quality;
 
   try {
     const meta = await sharp(buffer).metadata();
     const maxDim = Math.max(meta.width || 0, meta.height || 0);
+    const minDim = Math.min(meta.width || 0, meta.height || 0);
     let pipeline = sharp(buffer).rotate();
 
     if (maxDim > maxImageDim) {
@@ -248,6 +250,13 @@ export async function preprocess(
         height: maxImageDim,
         fit: "inside",
         withoutEnlargement: true,
+      });
+    } else if (minImageDim > 0 && minDim < minImageDim) {
+      pipeline = pipeline.resize({
+        width: minImageDim,
+        height: minImageDim,
+        fit: "outside",
+        withoutReduction: true,
       });
     }
 
@@ -281,7 +290,7 @@ export async function preprocess(
 export async function imageToBase64(
   source: string,
   vision: VisionConfig,
-  overrides?: { maxImageDim?: number; jpegQuality?: number },
+  overrides?: { maxImageDim?: number; minImageDim?: number; jpegQuality?: number },
 ): Promise<ImageEncoded> {
   const { buffer } = await loadAsBuffer(source, vision);
   return preprocess(buffer, vision, overrides);
