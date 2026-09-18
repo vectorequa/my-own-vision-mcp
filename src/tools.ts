@@ -10,7 +10,7 @@ import { log, nextReqId, describeImageSource } from "./logger.js";
 type GetConfig = () => AppConfig;
 
 const DEFAULT_RECOGNIZE_PROMPT = "Describe this image in detail.";
-const DEFAULT_OCR_PROMPT = "Extract ALL text from the image exactly as shown, preserving original layout and line breaks. The text may be in any language (Thai, Chinese, English, Korean, Japanese, Arabic, etc.). Return only the extracted text, no explanation or commentary.";
+const DEFAULT_OCR_PROMPT = "Extract ALL text from the image exactly as shown, preserving original layout and line breaks. Auto-detect language. Return only the extracted text, no explanation or commentary.";
 const DEFAULT_COMPARE_PROMPT = "Compare these two images. Describe their similarities and differences.";
 
 type ToolResult = { content: [{ type: "text"; text: string }]; isError?: boolean };
@@ -226,6 +226,7 @@ export function registerTools(server: McpServer, getConfig: GetConfig): void {
     "Use for any 'read the text' task. Returns only extracted text, no commentary.",
     {
       image: z.string().describe("Image path, base64, or URL"),
+      prompt: z.string().optional().describe("Custom OCR prompt (default: extract all text preserving layout)"),
       max_tokens: maxTokensParam,
       detail: detailParam,
       provider: providerParam,
@@ -233,12 +234,13 @@ export function registerTools(server: McpServer, getConfig: GetConfig): void {
     { title: "Extract Text (OCR)", readOnlyHint: true, openWorldHint: true },
     async (p) => runTool("extract_text", { image: describeImageSource(p.image) }, async () => {
       const config = getConfig();
+      const ocrPrompt = p.prompt || DEFAULT_OCR_PROMPT;
       const { result } = await withFallback(config, "extract_text", async (providerName, timeout) => {
         const client = makeClient(config, providerName);
         const overrides = computeImageOverrides(config, providerName, p.detail);
         const encoded = await imageToBase64(p.image, config.vision, overrides);
         log("INFO", "tool", "image preprocessed", { orig: `${encoded.origWidth}x${encoded.origHeight}`, scaled: `${encoded.scaledWidth}x${encoded.scaledHeight}`, provider: providerName });
-        return client.visionChat(DEFAULT_OCR_PROMPT, encoded.base64, encoded.mimeType, { maxTokens: p.max_tokens, timeout });
+        return client.visionChat(ocrPrompt, encoded.base64, encoded.mimeType, { maxTokens: p.max_tokens, timeout });
       }, p.provider);
       return result;
     }),
